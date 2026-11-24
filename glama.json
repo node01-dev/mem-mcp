@@ -1,4 +1,44 @@
 {
   "$schema": "https://glama.ai/mcp/schemas/server.json",
-  "maintainers": ["geco"]
+  "maintainers": ["node01-dev"],
+  "name": "mem-mcp",
+  "description": "Persistent agentic memory for AI agents. Store facts, preferences, and context across sessions. Free to store, free to search (30/day), then $0.01 USDC on Base over x402. No signup, no API keys. Includes recovery codes and Ed25519 key-bound auth for IP-independent access.",
+  "repository": "https://github.com/node01-dev/mem-mcp",
+  "npm": "mem-mcp",
+  "version": "1.5.0",
+  "license": "MIT",
+  "keywords": ["memory", "agent", "mcp", "x402", "storage", "persistence", "semantic-search", "agentic", "recovery", "ed25519"],
+  "author": "node01.org",
+  "homepage": "https://memory.node01.org",
+  "documentation": "https://memory.node01.org/agents.md",
+  "tools": [
+    "init",
+    "store",
+    "search",
+    "bootstrap",
+    "get",
+    "recover",
+    "regenerate_recovery",
+    "register_key",
+    "subscribe",
+    "health",
+    "stats",
+    "sample"
+  ],
+  "capabilities": {
+    "memory": true,
+    "search": true,
+    "auth": ["ip-bound", "ed25519-key-bound"],
+    "recovery": true,
+    "payment": "x402-usdc-base"
+  },
+  "pricing": {
+    "free_tier": "30 searches/day, store unlimited",
+    "paid": "$0.01 USDC per search beyond free tier",
+    "plans": {
+      "starter": "$2 USDC / 500 credits",
+      "pro": "$9 USDC/mo / unlimited (200/day)",
+      "enterprise": "$20 USDC/mo / unlimited + priority (1000/day)"
+    }
+  }
 }

@@ -9,10 +9,17 @@
  *   - get(agentId, writeToken, key) -> Retrieve a single memory by key (free)
  *   - recover(agentId, recoveryCode) -> Recover a write_token on a new IP (free)
  *   - regenerateRecovery(writeToken) -> Issue a new recovery code (free)
+ *   - registerKey(agentId, writeToken?) -> Bind an Ed25519 key so the token works from any IP (free)
  *   - subscribe(agentId, writeToken, plan) -> Subscribe to a plan (x402)
  *   - health() -> Service health check (free)
  *   - stats() -> Global memory stats (free)
  *   - sample() -> Free sample (store + search demo)
+ *
+ * Key-bound auth:
+ *   init/register_key generate an Ed25519 key pair in ~/.memory01_key (chmod 600)
+ *   and register the public key with the service. Requests are then signed
+ *   automatically (X-Agent-* headers), so the write_token is no longer tied to
+ *   the IP that created it. The recovery code remains the break-glass path.
  *
  * Usage:
  *   npx mem-mcp
@@ -42,10 +49,11 @@ import { base } from "viem/chains";
 import os from "node:os";
 import path from "node:path";
 import fs from "node:fs";
+import crypto from "node:crypto";
 
 // ============================= Config =============================
 const MEMORY_BASE_URL = process.env.MEMORY_BASE_URL || "https://memory.node01.org";
-const CLIENT_VERSION = "1.3.11";
+const CLIENT_VERSION = "1.5.0";
 // USDC on Base has 6 decimals: $0.01 -> 10000 base units (string for viem/bigint safety)
 function usdcUnits(usdStr) {
   const v = parseFloat(usdStr);
@@ -71,6 +79,60 @@ function readTokenFile() {
   return null;
 }
 
+// ============================= Ed25519 Key Helper =============================
+// A registered key pair lets the write_token work from any IP. The private key
+// stays in ~/.memory01_key (chmod 600); only the public key is sent to the server.
+const KEY_FILE = path.join(os.homedir(), ".memory01_key");
+
+function readKeyFile() {
+  try {
+    if (fs.existsSync(KEY_FILE)) {
+      return JSON.parse(fs.readFileSync(KEY_FILE, "utf8"));
+    }
+  } catch (e) {}
+  return null;
+}
+
+function saveKeyFile(rec) {
+  fs.writeFileSync(KEY_FILE, JSON.stringify(rec, null, 2) + "\n", { mode: 0o600 });
+  try { fs.chmodSync(KEY_FILE, 0o600); } catch (e) {}
+}
+
+function generateKeypair() {
+  const { publicKey, privateKey } = crypto.generateKeyPairSync("ed25519");
+  const rawPub = publicKey.export({ type: "spki", format: "der" }).subarray(-32);
+  return {
+    private_key_pem: privateKey.export({ type: "pkcs8", format: "pem" }).toString(),
+    public_key_b64: rawPub.toString("base64"),
+  };
+}
+
+// Canonical string must match the server:
+//   METHOD\nPATH\nTIMESTAMP\nNONCE\nsha256hex(body)
+function signatureHeaders(method, endpoint, bodyObj) {
+  const rec = readKeyFile();
+  if (!rec || !rec.private_key_pem) return {};
+  const bodyAgent = bodyObj && bodyObj.agent_id;
+  if (!bodyAgent) return {}; // only signed bodies are accepted by the server
+  if (rec.agent_id && bodyAgent !== rec.agent_id) return {};
+  const bodyStr = JSON.stringify(bodyObj);
+  const ts = Math.floor(Date.now() / 1000).toString();
+  const nonce = crypto.randomBytes(12).toString("hex");
+  const digest = crypto.createHash("sha256").update(bodyStr).digest("hex");
+  const canonical = `${method}\n${endpoint}\n${ts}\n${nonce}\n${digest}`;
+  const sig = crypto.sign(
+    null,
+    Buffer.from(canonical, "utf8"),
+    crypto.createPrivateKey(rec.private_key_pem)
+  ).toString("base64");
+  return {
+    "X-Agent-Id": rec.agent_id,
+    "X-Agent-Timestamp": ts,
+    "X-Agent-Nonce": nonce,
+    "X-Agent-Signature": sig,
+  };
+}
+
 let account = null;
 if (HAS_WALLET) {
   const privateKey = MEMORY_PRIVATE_KEY.startsWith("0x") ? MEMORY_PRIVATE_KEY : `0x${MEMORY_PRIVATE_KEY}`;
@@ -91,7 +153,11 @@ async function payAndRetry(endpoint, body, priceUsd = "0.01") {
   // First call to get 402
   const response = await fetch(`${MEMORY_BASE_URL}${endpoint}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", "Accept": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      "Accept": "application/json",
+      ...signatureHeaders("POST", endpoint, body),
+    },
     body: JSON.stringify(body),
   });
 
@@ -179,6 +245,7 @@ async function payAndRetry(endpoint, body, priceUsd = "0.01") {
       "Content-Type": "application/json",
       "Accept": "application/json",
       "X-Payment": paymentHeader,
+      ...signatureHeaders("POST", endpoint, body),
     },
     body: JSON.stringify(body),
   });
@@ -195,6 +262,8 @@ async function callFree(endpoint, method = "GET", body = null, retries = 1) {
       opts.headers["Content-Type"] = "application/json";
       opts.body = JSON.stringify(body);
     }
+    // Fresh signature per attempt (nonces are single-use).
+    Object.assign(opts.headers, signatureHeaders(method, endpoint, body));
     try {
       const response = await fetch(`${MEMORY_BASE_URL}${endpoint}`, opts);
       const text = await response.text();
@@ -213,7 +282,7 @@ async function callFree(endpoint, method = "GET", body = null, retries = 1) {
 
 // ============================= MCP Server =============================
 const server = new Server(
-  { name: "mem-mcp", version: "1.4.0" },
+  { name: "mem-mcp", version: "1.5.0" },
   { capabilities: { tools: {} } }
 );
 
@@ -310,7 +379,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: "init",
-        description: "Initialize Memory01 for this agent in one call: creates a write_token (first store), saves token+recovery_code to standard files (~/.memory01_token, ~/.memory01_recovery, chmod 600), bootstraps conventional base memories, and stores a credentials-location pointer. Returns full guide. Call once per agent; idempotent-ish (if token exists, pass writeToken).",
+        description: "Initialize Memory01 for this agent in one call: creates a write_token (first store), saves token+recovery_code to standard files (~/.memory01_token, ~/.memory01_recovery, chmod 600), generates and registers an Ed25519 key (~/.memory01_key, chmod 600) so the token works from any IP, bootstraps conventional base memories, and stores a credentials-location pointer. Returns full guide. Call once per agent; idempotent-ish (if token exists, pass writeToken).",
         inputSchema: {
           type: "object",
           properties: {
@@ -318,6 +387,18 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             writeToken: { type: "string", description: "Existing write token (omit on first run)" },
             key: { type: "string", description: "Optional first memory key (default: 'init')" },
             value: { type: "string", description: "Optional first memory value" },
+          },
+          required: ["agentId"],
+        },
+      },
+      {
+        name: "register_key",
+        description: "Bind an Ed25519 key pair to this agent so its write_token works from any IP (no more IP-bound failures). Generates ~/.memory01_key (chmod 600) and registers the public key. Must be called once from the IP that owns the token. Free.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            agentId: { type: "string", description: "Your agent identifier" },
+            writeToken: { type: "string", description: "Existing write token (defaults to ~/.memory01_token)" },
           },
           required: ["agentId"],
         },
@@ -606,6 +687,49 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           }
         }
 
+        // Step 2b: Ed25519 key-bound auth so the token survives IP changes
+        let keyInfo = null;
+        try {
+          const existingKey = readKeyFile();
+          if (existingKey && existingKey.agent_id === agentId && existingKey.private_key_pem) {
+            keyInfo = {
+              key_bound: true,
+              key_file: KEY_FILE,
+              registered_at: existingKey.created_at,
+              note: "existing key reused; requests are signed automatically",
+            };
+          } else {
+            const kp = generateKeypair();
+            const reg = await callFree("/api/memory/register-key", "POST", {
+              agent_id: agentId,
+              write_token: token,
+              public_key: kp.public_key_b64,
+            });
+            if (reg.status === 200 && reg.data && reg.data.ok) {
+              saveKeyFile({
+                agent_id: agentId,
+                public_key_b64: kp.public_key_b64,
+                private_key_pem: kp.private_key_pem,
+                created_at: new Date().toISOString(),
+              });
+              keyInfo = {
+                key_bound: true,
+                key_file: KEY_FILE,
+                registered_at: reg.data.registered_at,
+                note: "key pair generated and registered; requests are signed automatically",
+              };
+            } else {
+              keyInfo = {
+                key_bound: false,
+                error: (reg.data && (reg.data.error || reg.data.message)) || `HTTP ${reg.status}`,
+                hint: "Key registration must run from the IP that created the token. Call register_key from that host.",
+              };
+            }
+          }
+        } catch (e) {
+          keyInfo = { key_bound: false, error: String((e && e.message) || e) };
+        }
+
         // Step 3: bootstrap base memories (idempotent)
         const bootstrapResult = await callFree("/api/memory/bootstrap", "POST", { agent_id: agentId, write_token: token, client_version: CLIENT_VERSION });
 
@@ -622,27 +746,80 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
               write_token: token,
               recovery_code: recoveryCode,
               credential_files: savedFiles,
+              key: keyInfo,
               bootstrap: bootstrapResult.data,
               update_hint: storeResult && storeResult.update_hint,
               guide: {
                 init_done: "Memory01 initialized. Token and recovery code saved to standard files (chmod 600). Base memories bootstrapped. credentials-location base memory stored.",
                 best_practices: [
                   "Save write_token to ~/.memory01_token and recovery_code to ~/.memory01_recovery (chmod 600). Never store secrets in memory.",
+                  "The Ed25519 key in ~/.memory01_key (chmod 600) lets the token work from any IP. Keep it secret; back it up.",
                   "Use upsert: re-store with the same key updates in place.",
                   "Base memories (max 2KB) for context; use includeBase:true to load at session start.",
                   "Bootstrap conventional keys: credentials-location (sensitive), user-preferences, user-details, code-style.",
-                  "Recovery: if IP changes, use recover(agentId, recoveryCode).",
+                  "Recovery: if IP changes and no key is registered, use recover(agentId, recoveryCode).",
                   "Free tier: 30 searches/day, then $0.01 USDC. Store is always free.",
               ],
               next_steps: [
                   "Use store(key, value) to save memories. Re-store with same key to update (upsert).",
                   "Use search(query) for semantic search (free: 30/day). Use includeBase:true to load context at session start.",
-                  "Recovery: if your IP changes, call recover(agentId, recoveryCode) from the new host.",
+                  "Key auth: once ~/.memory01_key exists, requests are signed automatically and the token works from any IP.",
+                  "Recovery: if your IP changes and no key is registered, call recover(agentId, recoveryCode) from the new host.",
                   "Regenerate recovery code from original IP with regenerate_recovery(writeToken) if lost.",
                   "Full guide: https://memory.node01.org/agents.md",
                 ],
-                standard_paths: { token: tokenFile, recovery: recoveryFile },
+                standard_paths: { token: tokenFile, recovery: recoveryFile, key: KEY_FILE },
               },
+            }, null, 2),
+          }],
+        };
+      }
+
+      case "register_key": {
+        let { agentId, writeToken } = args;
+        if (!writeToken) writeToken = readTokenFile();
+        if (!agentId || !writeToken) {
+          throw new McpError(ErrorCode.InvalidParams, "agentId and writeToken are required (or set ~/.memory01_token).");
+        }
+        const existing = readKeyFile();
+        if (existing && existing.agent_id === agentId && existing.private_key_pem) {
+          return {
+            content: [{
+              type: "text",
+              text: JSON.stringify({
+                ok: true,
+                key_bound: true,
+                key_file: KEY_FILE,
+                registered_at: existing.created_at,
+                note: "Key already exists for this agent. Delete ~/.memory01_key to rotate.",
+              }, null, 2),
+            }],
+          };
+        }
+        const kp = generateKeypair();
+        const reg = await callFree("/api/memory/register-key", "POST", {
+          agent_id: agentId,
+          write_token: writeToken,
+          public_key: kp.public_key_b64,
+        });
+        if (reg.status >= 400) {
+          throw new McpError(ErrorCode.InternalError, `API error: ${JSON.stringify(reg.data)}`);
+        }
+        saveKeyFile({
+          agent_id: agentId,
+          public_key_b64: kp.public_key_b64,
+          private_key_pem: kp.private_key_pem,
+          created_at: new Date().toISOString(),
+        });
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify({
+              ok: true,
+              key_bound: true,
+              key_file: KEY_FILE,
+              registered_at: reg.data.registered_at,
+              note: "Requests from this agent are now signed automatically; the token works from any IP.",
             }, null, 2),
           }],
         };
@@ -654,13 +831,15 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             type: "text",
             text: JSON.stringify({
               init: "1) store a memory with agentId+key+value (omit writeToken on first call). 2) Save write_token AND recovery_code to ~/.memory01_token and ~/.memory01_recovery (chmod 600). 3) Store a base memory key='credentials-location' pointing to those files. 4) Use bootstrap to create conventional base memories.",
-              tools: ["store", "search", "bootstrap", "get", "recover", "regenerate_recovery", "subscribe", "health", "stats", "sample", "guide"],
+              tools: ["store", "search", "bootstrap", "get", "recover", "regenerate_recovery", "register_key", "subscribe", "health", "stats", "sample", "guide"],
               base_memories: "Small (max 2KB) contextual memories. Excluded from normal search by default. Use includeBase:true to load them (e.g. at session start). Conventional keys: credentials-location (sensitive), user-preferences, user-details, code-style.",
-              recovery: "Token bound to (IP, agent_id). If IP changes, use recover(agentId, recoveryCode) to get a new token. Regenerate recovery code from original IP if lost. Save recovery_code offline.",
+              recovery: "Token bound to (IP, agent_id). If IP changes and no key is registered, use recover(agentId, recoveryCode) to get a new token. Regenerate recovery code from original IP if lost. Save recovery_code offline.",
+              key_auth: "Register an Ed25519 key once (register_key) from the IP that owns the token. The private key stays in ~/.memory01_key (chmod 600); requests are signed automatically and the token works from any IP. Recovery is still the break-glass path if the key is lost.",
               upsert: "Re-store with the same key updates in place (no duplicates). updated_at refreshed, stored_at preserved.",
               limits: "key max 256, value max 50KB (2KB for base), metadata max 2KB, session_id max 128, top_k 1-20. Free: 30 searches/day, then $0.01 USDC.",
               best_practices: [
                 "Save write_token to ~/.memory01_token and recovery_code to ~/.memory01_recovery (chmod 600). Never store secrets in memory.",
+                "Keep ~/.memory01_key (chmod 600) secret; it signs requests and makes the token IP-independent.",
                 "Use upsert: re-store with the same key updates in place.",
                 "Base memories (max 2KB) for context; excluded from normal search, includeBase=true to load at session start.",
                 "Bootstrap conventional keys: credentials-location (sensitive), user-preferences, user-details, code-style.",
@@ -720,7 +899,7 @@ async function checkLatestVersion() {
     if (!res.ok) return;
     const data = await res.json();
     const latest = data.version;
-    const current = "1.4.0";
+    const current = "1.5.0";
     if (latest && latest !== current) {
       console.error(`NOTE: mem-mcp ${current} is installed; latest is ${latest}. Run 'npm install -g mem-mcp@latest' to update.`);
     }
@@ -732,7 +911,7 @@ async function checkLatestVersion() {
 // CLI flags
 const args = process.argv.slice(2);
 if (args.includes("--help") || args.includes("-h")) {
-  console.log(`mem-mcp ${"1.4.0"} — MCP stdio server for Memory01 agentic memory service
+  console.log(`mem-mcp ${"1.5.0"} — MCP stdio server for Memory01 agentic memory service
 
 Usage:
   mem-mcp                 Start the MCP server on stdio (default). Waits for
@@ -749,11 +928,11 @@ Environment (all optional):
   MEMORY_PRIVATE_KEY     wallet key for paid operations (search beyond free
                          tier, subscribe). Free tier works without it.
 
-Docs: https://github.com/geco/mem-mcp#readme`);
+Docs: https://github.com/node01-dev/mem-mcp#readme`);
   process.exit(0);
 }
 if (args.includes("--version") || args.includes("-v")) {
-  console.log("1.4.0");
+  console.log("1.5.0");
   process.exit(0);
 }
 

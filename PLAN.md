@@ -1,7 +1,7 @@
 # Memory MCP Wrapper — Plan & Status
 
 ## Goal
-Build and publish `memory-agent-mcp` npm package following `vibe-token-mcp` pattern.
+Build and publish `mem-mcp` npm package following `vibe-token-mcp` pattern.
 
 ## Status: ✅ BUILT & TESTED
 
@@ -20,7 +20,7 @@ Build and publish `memory-agent-mcp` npm package following `vibe-token-mcp` patt
 - [ ] Test search tool (free tier + paid)
 - [ ] Test subscribe tool (x402 payment)
 - [ ] Fix sample tool to handle existing write_token
-- [x] Publish to npm as `memory-agent-mcp` (v1.0.1)
+- [x] Publish to npm as `mem-mcp` (v1.0.1)
 - [ ] Add to x402-list MCP registry
 - [ ] Create README for npm page
 - [x] Test end-to-end (health + sample passed)

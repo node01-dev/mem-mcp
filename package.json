@@ -1,12 +1,17 @@
 {
   "name": "mem-mcp",
-  "version": "1.4.0",
+  "version": "1.5.0",
   "description": "MCP wrapper for Memory01 agentic memory service - persistent memory for AI agents, free to store and search. Base memories, recovery codes, upsert, 50+ languages.",
   "type": "module",
   "main": "index.js",
   "bin": {
     "mem-mcp": "index.js"
   },
+  "files": [
+    "index.js",
+    "README.md",
+    "glama.json"
+  ],
   "scripts": {
     "start": "node index.js",
     "test": "node test.js"
@@ -23,7 +28,7 @@
     "upsert",
     "x402"
   ],
-  "author": "node01.org",
+  "author": "node01-dev",
   "license": "MIT",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",
@@ -34,10 +39,10 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/geco/mem-mcp.git"
+    "url": "https://github.com/node01-dev/mem-mcp.git"
   },
-  "homepage": "https://github.com/geco/mem-mcp#readme",
+  "homepage": "https://github.com/node01-dev/mem-mcp#readme",
   "bugs": {
-    "url": "https://github.com/geco/mem-mcp/issues"
+    "url": "https://github.com/node01-dev/mem-mcp/issues"
   }
 }
