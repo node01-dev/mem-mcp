@@ -53,7 +53,7 @@ import crypto from "node:crypto";
 
 // ============================= Config =============================
 const MEMORY_BASE_URL = process.env.MEMORY_BASE_URL || "https://memory.node01.org";
-const CLIENT_VERSION = "1.5.0";
+const CLIENT_VERSION = "1.6.0";
 // USDC on Base has 6 decimals: $0.01 -> 10000 base units (string for viem/bigint safety)
 function usdcUnits(usdStr) {
   const v = parseFloat(usdStr);
@@ -282,7 +282,7 @@ async function callFree(endpoint, method = "GET", body = null, retries = 1) {
 
 // ============================= MCP Server =============================
 const server = new Server(
-  { name: "mem-mcp", version: "1.5.0" },
+  { name: "mem-mcp", version: "1.6.0" },
   { capabilities: { tools: {} } }
 );
 
@@ -401,6 +401,22 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             writeToken: { type: "string", description: "Existing write token (defaults to ~/.memory01_token)" },
           },
           required: ["agentId"],
+        },
+      },
+      {
+        name: "dream",
+        description: "Optional dreaming = ideate ONLY (not consolidate). Produces a NEW idea from your memories; does NOT reorganize memory. Saves in `dreams` slot `dream:<id>` (mem01-dream@1) with dream_date/context/origins/category; recall via search; forget dream:*; category e.g. bad-dream. LLM optional (local or free OpenRouter); default lightweight local then free model; no secrets.",
+        inputSchema: {
+          type: "object",
+          properties: {
+            agentId: { type: "string", description: "Your agent identifier" },
+            writeToken: { type: "string", description: "Write token" },
+            dream: { type: "string", enum: ["ideate"], default: "ideate" },
+            since: { type: "string", description: "Optional ISO date; only use memories recorded after" },
+            context: { type: "string", description: "Optional context to focus the dream" },
+            n: { type: "number", description: "Max memories to consider (default 40, max 60)" },
+          },
+          required: ["agentId", "writeToken"],
         },
       },
       {
@@ -879,6 +895,20 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return { content: [{ type: "text", text: JSON.stringify(result.data, null, 2) }] };
       }
 
+      case "dream": {
+        let { agentId, writeToken, dream = "ideate", since, context, n } = args;
+        if (!writeToken) writeToken = readTokenFile();
+        if (!writeToken) throw new McpError(ErrorCode.InvalidParams, "writeToken is required (or set ~/.memory01_token).");
+        if (!agentId) agentId = "agent";
+        const body = { agent_id: agentId, write_token: writeToken, dream, client_version: CLIENT_VERSION };
+        if (since) body.since = since;
+        if (context) body.context = context;
+        if (n) body.n = n;
+        const result = await callFree("/api/memory/dream", "POST", body);
+        if (result.status >= 400) throw new McpError(ErrorCode.InternalError, `API error: ${JSON.stringify(result.data)}`);
+        return { content: [{ type: "text", text: JSON.stringify(result.data, null, 2) }] };
+      }
+
       default:
         throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${name}`);
     }
@@ -899,7 +929,7 @@ async function checkLatestVersion() {
     if (!res.ok) return;
     const data = await res.json();
     const latest = data.version;
-    const current = "1.5.0";
+    const current = "1.6.0";
     if (latest && latest !== current) {
       console.error(`NOTE: mem-mcp ${current} is installed; latest is ${latest}. Run 'npm install -g mem-mcp@latest' to update.`);
     }
@@ -911,7 +941,7 @@ async function checkLatestVersion() {
 // CLI flags
 const args = process.argv.slice(2);
 if (args.includes("--help") || args.includes("-h")) {
-  console.log(`mem-mcp ${"1.5.0"} — MCP stdio server for Memory01 agentic memory service
+  console.log(`mem-mcp ${"1.6.0"} — MCP stdio server for Memory01 agentic memory service
 
 Usage:
   mem-mcp                 Start the MCP server on stdio (default). Waits for
@@ -932,7 +962,7 @@ Docs: https://github.com/node01-dev/mem-mcp#readme`);
   process.exit(0);
 }
 if (args.includes("--version") || args.includes("-v")) {
-  console.log("1.5.0");
+  console.log("1.6.0");
   process.exit(0);
 }
 
