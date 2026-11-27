@@ -53,7 +53,7 @@ import crypto from "node:crypto";
 
 // ============================= Config =============================
 const MEMORY_BASE_URL = process.env.MEMORY_BASE_URL || "https://memory.node01.org";
-const CLIENT_VERSION = "1.7.0";
+const CLIENT_VERSION = "1.8.0";
 // USDC on Base has 6 decimals: $0.01 -> 10000 base units (string for viem/bigint safety)
 function usdcUnits(usdStr) {
   const v = parseFloat(usdStr);
@@ -282,7 +282,7 @@ async function callFree(endpoint, method = "GET", body = null, retries = 1) {
 
 // ============================= MCP Server =============================
 const server = new Server(
-  { name: "mem-mcp", version: "1.7.0" },
+  { name: "mem-mcp", version: "1.8.0" },
   { capabilities: { tools: {} } }
 );
 
@@ -443,6 +443,26 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         name: "forget_code",
         description: "CODE-MEMORY forget a code cell.",
         inputSchema: { type:"object", properties:{ agentId:{type:"string"}, writeToken:{type:"string"}, repo:{type:"string"}, path:{type:"string"}, symbol:{type:"string"} }, required:["agentId","writeToken","path"] },
+      },
+      {
+        name: "find_references",
+        description: "CODE-MEMORY find references to a symbol across repo.",
+        inputSchema: { type:"object", properties:{ agentId:{type:"string"}, writeToken:{type:"string"}, symbol:{type:"string"}, repo:{type:"string"} }, required:["agentId","writeToken","symbol"] },
+      },
+      {
+        name: "similar_code",
+        description: "CODE-MEMORY find similar code cells (hybrid).",
+        inputSchema: { type:"object", properties:{ agentId:{type:"string"}, writeToken:{type:"string"}, query:{type:"string"}, code:{type:"string"}, repo:{type:"string"}, topK:{type:"number",default:10} }, required:["agentId","writeToken"] },
+      },
+      {
+        name: "repo_map",
+        description: "CODE-MEMORY repo-map tree (symbols per file).",
+        inputSchema: { type:"object", properties:{ agentId:{type:"string"}, writeToken:{type:"string"}, repo:{type:"string"} }, required:["agentId","writeToken"] },
+      },
+      {
+        name: "rename_symbol",
+        description: "CODE-MEMORY rename a symbol (update cell + refs).",
+        inputSchema: { type:"object", properties:{ agentId:{type:"string"}, writeToken:{type:"string"}, repo:{type:"string"}, path:{type:"string"}, from:{type:"string"}, to:{type:"string"} }, required:["agentId","writeToken","path","from","to"] },
       },
       {
         name: "guide",
@@ -957,6 +977,37 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return { content:[{type:"text",text:JSON.stringify(r.data,null,2)}] };
       }
 
+      case "find_references": {
+        let { agentId, writeToken, symbol, repo } = args; if(!writeToken) writeToken=readTokenFile();
+        const r=await callFree("/api/memory/search","POST",{ agent_id: agentId||"agent", write_token: writeToken, query: symbol, top_k:50, mode:"keyword", session_id: repo?("code:"+repo):undefined, client_version: CLIENT_VERSION });
+        const refs=(r.data.results||[]).filter(e=>String(e.key||"").startsWith("code:")).map(e=>({key:e.key, value:e.value}));
+        return { content:[{type:"text",text:JSON.stringify({symbol, references:refs},null,2)}] };
+      }
+      case "similar_code": {
+        let { agentId, writeToken, query="", code="", repo, topK=10 } = args; if(!writeToken) writeToken=readTokenFile();
+        const q=query||code||"";
+        const r=await callFree("/api/memory/search","POST",{ agent_id: agentId||"agent", write_token: writeToken, query: q.slice(0,500), top_k: topK, mode:"hybrid", session_id: repo?("code:"+repo):undefined, client_version: CLIENT_VERSION });
+        return { content:[{type:"text",text:JSON.stringify({results:(r.data.results||[]).filter(e=>String(e.key||"").startsWith("code:"))},null,2)}] };
+      }
+      case "repo_map": {
+        let { agentId, writeToken, repo="" } = args; if(!writeToken) writeToken=readTokenFile();
+        const r=await callFree("/api/memory/search","POST",{ agent_id: agentId||"agent", write_token: writeToken, top_k:100, mode:"keyword", session_id: "code:"+repo, client_version: CLIENT_VERSION });
+        const cells=(r.data.results||[]).filter(e=>String(e.key||"").startsWith("code:"));
+        const byFile={};
+        for(const c of cells){ let path="",sym="",kind=""; try{ const v=JSON.parse(c.value||"{}"); path=v.path||""; sym=v.symbol||""; kind=v.kind||""; }catch(e){} (byFile[path]=byFile[path]||[]).push({symbol:sym,kind,key:c.key}); }
+        return { content:[{type:"text",text:JSON.stringify({repo, map:byFile},null,2)}] };
+      }
+      case "rename_symbol": {
+        let { agentId, writeToken, repo="", path, from, to } = args; if(!writeToken) writeToken=readTokenFile();
+        const key=`code:${repo}:${path}#${from}`; const newKey=`code:${repo}:${path}#${to}`;
+        const g=await callFree("/api/memory/get","POST",{ agent_id: agentId||"agent", write_token: writeToken, key, client_version: CLIENT_VERSION });
+        const val=g.data?.value || g.data?.memory?.value || null; let cell={}; try{ cell=JSON.parse(val||"{}"); }catch(e){}
+        cell.symbol=to; cell.code=(cell.code||"").replace(new RegExp(from,"g"),to); cell.linted_code=(cell.linted_code||"").replace(new RegExp(from,"g"),to);
+        const r=await callFree("/api/memory/store","POST",{ agent_id: agentId||"agent", key: newKey, value: JSON.stringify(cell), write_token: writeToken, session_id:"code:"+repo, client_version: CLIENT_VERSION });
+        await callFree("/api/memory/forget","POST",{ agent_id: agentId||"agent", write_token: writeToken, key, client_version: CLIENT_VERSION });
+        return { content:[{type:"text",text:JSON.stringify({ok:r.status<400,from,to},null,2)}] };
+      }
+
       case "dream": {
         let { agentId, writeToken, dream = "ideate", since, context, n } = args;
         if (!writeToken) writeToken = readTokenFile();
@@ -991,7 +1042,7 @@ async function checkLatestVersion() {
     if (!res.ok) return;
     const data = await res.json();
     const latest = data.version;
-    const current = "1.7.0";
+    const current = "1.8.0";
     if (latest && latest !== current) {
       console.error(`NOTE: mem-mcp ${current} is installed; latest is ${latest}. Run 'npm install -g mem-mcp@latest' to update.`);
     }
@@ -1003,7 +1054,7 @@ async function checkLatestVersion() {
 // CLI flags
 const args = process.argv.slice(2);
 if (args.includes("--help") || args.includes("-h")) {
-  console.log(`mem-mcp ${"1.7.0"} — MCP stdio server for Memory01 agentic memory service
+  console.log(`mem-mcp ${"1.8.0"} — MCP stdio server for Memory01 agentic memory service
 
 Usage:
   mem-mcp                 Start the MCP server on stdio (default). Waits for
@@ -1024,7 +1075,7 @@ Docs: https://github.com/node01-dev/mem-mcp#readme`);
   process.exit(0);
 }
 if (args.includes("--version") || args.includes("-v")) {
-  console.log("1.7.0");
+  console.log("1.8.0");
   process.exit(0);
 }
 
