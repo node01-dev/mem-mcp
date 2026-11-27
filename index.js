@@ -53,7 +53,7 @@ import crypto from "node:crypto";
 
 // ============================= Config =============================
 const MEMORY_BASE_URL = process.env.MEMORY_BASE_URL || "https://memory.node01.org";
-const CLIENT_VERSION = "1.6.0";
+const CLIENT_VERSION = "1.7.0";
 // USDC on Base has 6 decimals: $0.01 -> 10000 base units (string for viem/bigint safety)
 function usdcUnits(usdStr) {
   const v = parseFloat(usdStr);
@@ -282,7 +282,7 @@ async function callFree(endpoint, method = "GET", body = null, retries = 1) {
 
 // ============================= MCP Server =============================
 const server = new Server(
-  { name: "mem-mcp", version: "1.6.0" },
+  { name: "mem-mcp", version: "1.7.0" },
   { capabilities: { tools: {} } }
 );
 
@@ -418,6 +418,31 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
           },
           required: ["agentId", "writeToken"],
         },
+      },
+      {
+        name: "store_code",
+        description: "CODE-MEMORY (.mem01): store a code cell (linted embedded). Upsert by repo+path+symbol. Preserves original; `linted_code` if provided else `code`; `lint_status`. No secrets.",
+        inputSchema: { type:"object", properties:{ agentId:{type:"string"}, writeToken:{type:"string"}, repo:{type:"string"}, path:{type:"string"}, symbol:{type:"string"}, kind:{type:"string",description:"fn|class|method|import|block"}, language:{type:"string"}, code:{type:"string"}, linted_code:{type:"string"}, lint_status:{type:"string"}, lint_errors:{type:"array"}, tests:{type:"array"}, doc:{type:"string"}, deps:{type:"array"}, git_sha:{type:"string"} }, required:["agentId","writeToken","path","code"] },
+      },
+      {
+        name: "search_code",
+        description: "CODE-MEMORY semantic/hybrid code search. Returns .mem01 cells.",
+        inputSchema: { type:"object", properties:{ agentId:{type:"string"}, writeToken:{type:"string"}, query:{type:"string"}, repo:{type:"string"}, language:{type:"string"}, topK:{type:"number",default:10} }, required:["agentId","writeToken","query"] },
+      },
+      {
+        name: "get_symbol",
+        description: "CODE-MEMORY get one symbol cell.",
+        inputSchema: { type:"object", properties:{ agentId:{type:"string"}, writeToken:{type:"string"}, repo:{type:"string"}, path:{type:"string"}, symbol:{type:"string"} }, required:["agentId","writeToken","path","symbol"] },
+      },
+      {
+        name: "list_repo",
+        description: "CODE-MEMORY list repo-map (cells) for a repo.",
+        inputSchema: { type:"object", properties:{ agentId:{type:"string"}, writeToken:{type:"string"}, repo:{type:"string"} }, required:["agentId","writeToken"] },
+      },
+      {
+        name: "forget_code",
+        description: "CODE-MEMORY forget a code cell.",
+        inputSchema: { type:"object", properties:{ agentId:{type:"string"}, writeToken:{type:"string"}, repo:{type:"string"}, path:{type:"string"}, symbol:{type:"string"} }, required:["agentId","writeToken","path"] },
       },
       {
         name: "guide",
@@ -895,6 +920,43 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return { content: [{ type: "text", text: JSON.stringify(result.data, null, 2) }] };
       }
 
+      case "store_code": {
+        let { agentId, writeToken, repo="", path, symbol="", kind="block", language="", code, linted_code, lint_status, lint_errors, tests, doc, deps, git_sha } = args;
+        if (!writeToken) writeToken = readTokenFile();
+        if (!writeToken) throw new McpError(ErrorCode.InvalidParams, "writeToken required");
+        if (!path || !code) throw new McpError(ErrorCode.InvalidParams, "path and code required");
+        const key = `code:${repo}:${path}#${symbol}`;
+        const cell = { schema:"mem01-code@1", language, path, symbol, kind, repo, code, linted_code: linted_code || code, lint_status: lint_status || (linted_code && linted_code!==code ? "fixed":"unknown"), lint_errors: lint_errors||[], tests: tests||[], doc: doc||"", deps: deps||[], git_sha: git_sha||null, recorded_at: new Date().toISOString(), searchable:true, base:false };
+        const body={ agent_id: agentId||"agent", key, value: JSON.stringify(cell), write_token: writeToken, session_id: "code:"+(repo||""), base:false, metadata:{ code_memory:true, language, symbol, kind }, client_version: CLIENT_VERSION };
+        const r=await callFree("/api/memory/store","POST",body); if(r.status>=400) throw new McpError(ErrorCode.InternalError, JSON.stringify(r.data));
+        return { content:[{type:"text",text:JSON.stringify({ok:true,key,cell},null,2)}] };
+      }
+      case "search_code": {
+        let { agentId, writeToken, query, repo, language, topK=10 } = args;
+        if (!writeToken) writeToken = readTokenFile(); if(!writeToken) throw new McpError(ErrorCode.InvalidParams,"writeToken required");
+        const body={ agent_id: agentId||"agent", write_token: writeToken, query, top_k: topK, mode:"hybrid", session_id: repo?("code:"+repo):undefined, client_version: CLIENT_VERSION };
+        const r=await callFree("/api/memory/search","POST",body); if(r.status>=400) throw new McpError(ErrorCode.InternalError, JSON.stringify(r.data));
+        const res=(r.data.results||[]).filter(e=>String(e.key||"").startsWith("code:")).filter(e=>!language||String(e.value||"").includes('"language":"'+language+'"'));
+        return { content:[{type:"text",text:JSON.stringify({results:res},null,2)}] };
+      }
+      case "get_symbol": {
+        let { agentId, writeToken, repo="", path, symbol } = args; if(!writeToken) writeToken=readTokenFile();
+        const key=`code:${repo}:${path}#${symbol}`;
+        const r=await callFree("/api/memory/get","POST",{ agent_id: agentId||"agent", write_token: writeToken, key, client_version: CLIENT_VERSION });
+        return { content:[{type:"text",text:JSON.stringify(r.data,null,2)}] };
+      }
+      case "list_repo": {
+        let { agentId, writeToken, repo="" } = args; if(!writeToken) writeToken=readTokenFile();
+        const r=await callFree("/api/memory/search","POST",{ agent_id: agentId||"agent", write_token: writeToken, top_k:50, mode:"keyword", session_id: repo?("code:"+repo):"code:"+repo, client_version: CLIENT_VERSION });
+        return { content:[{type:"text",text:JSON.stringify({results:(r.data.results||[]).filter(e=>String(e.key||"").startsWith("code:"))},null,2)}] };
+      }
+      case "forget_code": {
+        let { agentId, writeToken, repo="", path, symbol="" } = args; if(!writeToken) writeToken=readTokenFile();
+        const key=`code:${repo}:${path}#${symbol}`;
+        const r=await callFree("/api/memory/forget","POST",{ agent_id: agentId||"agent", write_token: writeToken, key, client_version: CLIENT_VERSION });
+        return { content:[{type:"text",text:JSON.stringify(r.data,null,2)}] };
+      }
+
       case "dream": {
         let { agentId, writeToken, dream = "ideate", since, context, n } = args;
         if (!writeToken) writeToken = readTokenFile();
@@ -929,7 +991,7 @@ async function checkLatestVersion() {
     if (!res.ok) return;
     const data = await res.json();
     const latest = data.version;
-    const current = "1.6.0";
+    const current = "1.7.0";
     if (latest && latest !== current) {
       console.error(`NOTE: mem-mcp ${current} is installed; latest is ${latest}. Run 'npm install -g mem-mcp@latest' to update.`);
     }
@@ -941,7 +1003,7 @@ async function checkLatestVersion() {
 // CLI flags
 const args = process.argv.slice(2);
 if (args.includes("--help") || args.includes("-h")) {
-  console.log(`mem-mcp ${"1.6.0"} — MCP stdio server for Memory01 agentic memory service
+  console.log(`mem-mcp ${"1.7.0"} — MCP stdio server for Memory01 agentic memory service
 
 Usage:
   mem-mcp                 Start the MCP server on stdio (default). Waits for
@@ -962,7 +1024,7 @@ Docs: https://github.com/node01-dev/mem-mcp#readme`);
   process.exit(0);
 }
 if (args.includes("--version") || args.includes("-v")) {
-  console.log("1.6.0");
+  console.log("1.7.0");
   process.exit(0);
 }
 

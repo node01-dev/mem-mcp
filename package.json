@@ -1,6 +1,6 @@
 {
   "name": "mem-mcp",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "description": "MCP wrapper for Memory01 agentic memory service - persistent memory for AI agents, free to store and search. Base memories, recovery codes, upsert, 50+ languages.",
   "type": "module",
   "main": "index.js",
