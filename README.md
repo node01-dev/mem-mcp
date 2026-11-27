@@ -23,20 +23,23 @@ Memory01 gives your agent a brain that survives reboots:
 
 ## Features
 
-- **Store**: Free memory storage (first call returns a write_token + recovery_code)
-- **Upsert**: Re-store with the same key updates in place (no duplicates)
-- **Search**: Semantic search across 50+ languages (free tier: 30/day, then $0.01 USDC)
-- **Base memories**: Small (max 2KB) contextual memories (preferences, style, details). Excluded from normal search by default; include with `include_base=true`. Bootstrap creates conventional ones.
-- **Recovery**: Recovery code issued at first store lets you re-bind your token to a new IP if your host changes IP.
-- **Key-bound auth**: `init` generates an Ed25519 key pair in `~/.memory01_key` (chmod 600) and registers the public key. Requests are signed automatically, so the token works from any IP — no recovery needed when your cloud IP changes.
-- **Subscribe**: Subscription plans (Starter $2/500, Pro $9/mo, Enterprise $20/mo)
-- **Portable schema mem01-memory@1**: `export`, `import`, `forget`; human-readable; no secrets.
-- **Temporal**: `recorded_at`,`valid_from`,`valid_to`,`version`,`history`; `as_of`; `invalidate`,`restore`; no blind overwrite.
-- **Typed knowledge graph**: `relate`,`relations`; causes/contradicts/refers/owns.
-- **Hybrid RRF + rerank**: `mode=hybrid`, `min_score`, `scope`, `as_of`.
-- **CODE-MEMORY `.mem01`**: `store_code`,`search_code`,`get_symbol`,`list_repo`,`forget_code`,`find_references`,`similar_code`,`repo_map`,`rename_symbol`; linted-embedded.
-- **Dreaming `ideate` (optional, default OFF)**: `dream`; NOT consolidate; new idea; `dreams` slot; recall/forget/categorize; LLM optional default OpenRouter free / local llama.cpp; no secrets.
-- **Health / Stats / Sample**: Free utilities
+Plain-English, no jargon:
+
+- **Persistent memory**: your AI agent remembers facts, preferences, decisions and context between sessions. Store is always free.
+- **Cheap + no signup**: no API keys, no accounts, no database to run. First 30 searches a day are free; beyond that $0.01 USDC per search on Base (x402). Works with Claude, OpenCode, Cursor, ChatGPT, any MCP client.
+- **Search by meaning**: across 50+ languages. Store once, recall by what it means, not exact words. Keyword + semantic + connections, optional hybrid re-ranking; minimum score; scope to parts of memory.
+- **Upsert**: saving with the same key updates in place; no duplicates.
+- **Base memories**: small always-there context (style, preferences, details); bootstrap conventional keys.
+- **Scoped memories**: per agent; optional per-session; conventional `credentials-location` pointer (never secrets).
+- **Portable backups**: `export`, `import`, `forget`. Readable `mem01-memory@1`; nothing hidden.
+- **History & time travel**: records when a memory was added/changed; `as_of` "what we knew then"; mark outdated instead of delete; undo + restore earlier version; no silent overwrite.
+- **Connections (typed links)**: link memories ("causes", "contradicts", "refers to", "owns", ...); follow connections.
+- **Memory for code (CODE-MEMORY `.mem01`)**: save code snippets, not just notes — function/class/file, language, project, tests, docs, cleaned vs original. Search code, find usages, project map, rename symbol, recall past code. Original preserved; no secrets.
+- **Optional dreaming ("ideate")**: off by default. Reads your memories and suggests ONE new idea (connection/question/next step). Does NOT reorganize or change memory. Saved separately; find later by date/topic/label; delete; label e.g. bad-dream. Optional local or free model; nothing sensitive sent.
+- **Recovery + strong auth**: recovery code; optional Ed25519 key so your token works across networks; invalid/expired signatures rejected. Credentials kept offline; never inside memories.
+- **Subscriptions**: optional paid plans (Starter/Pro/Enterprise); core stays free.
+- **MCP-native**: one `npx mem-mcp`, multi-client; no infrastructure.
+
 
 ## Auto-update
 

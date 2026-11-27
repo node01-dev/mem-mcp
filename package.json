@@ -1,7 +1,7 @@
 {
   "name": "mem-mcp",
-  "version": "1.9.0",
-  "description": "MCP server for Memory01 agentic memory. Free to store + 30 free searches/day then $0.01 USDC x402 on Base. mem01-memory@1 portable schema, export/import/forget, temporal bi-temporal + as_of + invalidate/restore, typed KG, hybrid RRF + rerank, CODE-MEMORY .mem01 (linted embedded), optional dreaming ideate, Ed25519 key-bound auth + recovery, 50+ languages, base memories, multi-client. No API keys; no secrets.",
+  "version": "1.9.1",
+  "description": "Memory for AI agents that survives reboots. Free to store; 30 free searches/day then $0.01 USDC on Base (x402); no API keys; works with any MCP client. Search by meaning across 50+ languages. Portable backups. History, time travel, undo. Connections between memories. Memory for code. Optional dreaming that suggests new ideas without changing memory. Private per-agent; recovery + optional strong key. Nothing sensitive stored.",
   "type": "module",
   "main": "index.js",
   "bin": {
