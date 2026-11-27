@@ -53,7 +53,7 @@ import crypto from "node:crypto";
 
 // ============================= Config =============================
 const MEMORY_BASE_URL = process.env.MEMORY_BASE_URL || "https://memory.node01.org";
-const CLIENT_VERSION = "1.9.1";
+const CLIENT_VERSION = "1.9.2";
 // USDC on Base has 6 decimals: $0.01 -> 10000 base units (string for viem/bigint safety)
 function usdcUnits(usdStr) {
   const v = parseFloat(usdStr);
@@ -282,7 +282,7 @@ async function callFree(endpoint, method = "GET", body = null, retries = 1) {
 
 // ============================= MCP Server =============================
 const server = new Server(
-  { name: "mem-mcp", version: "1.9.1" },
+  { name: "mem-mcp", version: "1.9.2" },
   { capabilities: { tools: {} } }
 );
 
@@ -1042,7 +1042,7 @@ async function checkLatestVersion() {
     if (!res.ok) return;
     const data = await res.json();
     const latest = data.version;
-    const current = "1.9.1";
+    const current = "1.9.2";
     if (latest && latest !== current) {
       console.error(`NOTE: mem-mcp ${current} is installed; latest is ${latest}. Run 'npm install -g mem-mcp@latest' to update.`);
     }
@@ -1054,7 +1054,7 @@ async function checkLatestVersion() {
 // CLI flags
 const args = process.argv.slice(2);
 if (args.includes("--help") || args.includes("-h")) {
-  console.log(`mem-mcp ${"1.9.1"} — MCP stdio server for Memory01 agentic memory service
+  console.log(`mem-mcp ${"1.9.2"} — MCP stdio server for Memory01 agentic memory service
 
 Usage:
   mem-mcp                 Start the MCP server on stdio (default). Waits for
@@ -1075,7 +1075,7 @@ Docs: https://github.com/node01-dev/mem-mcp#readme`);
   process.exit(0);
 }
 if (args.includes("--version") || args.includes("-v")) {
-  console.log("1.9.1");
+  console.log("1.9.2");
   process.exit(0);
 }
 

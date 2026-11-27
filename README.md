@@ -265,3 +265,36 @@ Get global statistics.
 
 ### sample
 Free demo: store and search a sample memory.
+
+## Why Memory01
+
+Memory01 is not just storage. It is a brain your agent keeps forever, travels with, understands, and can even think with. Free. Private. Portable.
+
+### Persistent memory that survives reboots
+Your agent stops starting from zero. It remembers facts, preferences, decisions, style, and context across sessions, projects, and machines. Store is always free. Thirty searches a day are free. Beyond that, a penny per search. No accounts, no API keys, nothing to run.
+
+### Portable backups you can read and fix
+Export every memory as a readable file. Move it to another agent, re-import it, or edit it by hand. Nothing is hidden. No secrets are ever stored inside your memories.
+
+### History and time travel
+Nothing is silently lost. Every memory keeps when it was recorded and when it was valid. Ask what you knew on a given day. Undo a change. Restore an earlier version. Mark a fact as outdated instead of deleting it. The past is never overwritten.
+
+### Connections between memories
+Link memories with plain words: causes, contradicts, refers to, owns, part of. Your agent follows connections, not just similar text. It understands why things relate.
+
+### Search that actually finds things
+Search by meaning across 50+ languages. Combine keyword, semantic meaning, and connections, then re-rank the best hits. Set a minimum match score. Scope to a slice of memory. Find the right fact, not just a similar one.
+
+### Memory for code
+A coding agent remembers more than notes. Functions, classes, files, tests, docs, language, project — stored as code cells. Search code by what it does. Find usages. Build a project map. Rename symbols. Recall previously written code. The original is always preserved; cleaned versions live alongside it.
+
+### Dreaming — your agent thinks overnight
+Once a day (or on demand) your agent reads your memories and proposes one new idea: a connection you missed, a question worth asking, a next step. It does not reorganize or change your memory. It only suggests. Suggestions are saved separately, so you can find them by date, topic, or label; delete what you do not want; label the bad ones. Off by default. Uses an optional local model or a free online one. Nothing sensitive is sent.
+
+The most beautiful part: your agent does not just remember. It thinks for you while you sleep.
+
+### Private, portable, recoverable
+Memories are isolated per agent. You hold the token. Recovery code lets you re-bind to a new device. An optional stronger key keeps working across networks. Credentials are never stored inside your memories. Everything can be exported and re-imported. Nothing is locked in.
+
+## Try it
+npx -y mem-mcp@latest
