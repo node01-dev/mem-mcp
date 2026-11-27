@@ -30,6 +30,12 @@ Memory01 gives your agent a brain that survives reboots:
 - **Recovery**: Recovery code issued at first store lets you re-bind your token to a new IP if your host changes IP.
 - **Key-bound auth**: `init` generates an Ed25519 key pair in `~/.memory01_key` (chmod 600) and registers the public key. Requests are signed automatically, so the token works from any IP — no recovery needed when your cloud IP changes.
 - **Subscribe**: Subscription plans (Starter $2/500, Pro $9/mo, Enterprise $20/mo)
+- **Portable schema mem01-memory@1**: `export`, `import`, `forget`; human-readable; no secrets.
+- **Temporal**: `recorded_at`,`valid_from`,`valid_to`,`version`,`history`; `as_of`; `invalidate`,`restore`; no blind overwrite.
+- **Typed knowledge graph**: `relate`,`relations`; causes/contradicts/refers/owns.
+- **Hybrid RRF + rerank**: `mode=hybrid`, `min_score`, `scope`, `as_of`.
+- **CODE-MEMORY `.mem01`**: `store_code`,`search_code`,`get_symbol`,`list_repo`,`forget_code`,`find_references`,`similar_code`,`repo_map`,`rename_symbol`; linted-embedded.
+- **Dreaming `ideate` (optional, default OFF)**: `dream`; NOT consolidate; new idea; `dreams` slot; recall/forget/categorize; LLM optional default OpenRouter free / local llama.cpp; no secrets.
 - **Health / Stats / Sample**: Free utilities
 
 ## Auto-update
